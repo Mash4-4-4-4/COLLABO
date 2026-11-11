@@ -1,0 +1,31 @@
+
+.pixel-button {
+  border: 0;
+
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+
+  cursor: pointer;
+
+  -webkit-tap-highlight-color: transparent;
+
+  transition:
+    transform .12s ease,
+    filter .12s ease,
+    box-shadow .12s ease;
+}
+
+.pixel-button:focus-visible {
+  outline: 3px solid #a4e8d0;
+  outline-offset: 4px;
+}
+
+.pixel-button:active {
+  transform: translateY(2px) scale(.985);
+  filter: brightness(.94);
+}
+
+.pixel-button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
