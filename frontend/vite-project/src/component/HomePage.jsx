@@ -1,177 +1,198 @@
-
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import PixelButton from './PixelButton'
-import './HomePage.css'
-import Toast from "./Toast"
-import { useRef } from 'react'
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import PixelButton from "./PixelButton";
+import Toast from "./Toast";
+import { api } from "../utils/api";
+import "./HomePage.css";
 
 function HomePage() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("codecast_user") || "null"); }
+    catch { return null; }
+  });
+  const [workspaces, setWorkspaces] = useState([]);
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [joinId, setJoinId] = useState("");
+  const [isRegister, setIsRegister] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
-  const usernameRef=useRef(null);
-const [roomId, setRoomId] = useState('')
-  const [username, setUsername] = useState('')
-   const [error,setError]=useState("");
-
-  const navigate = useNavigate()
-  function joinRoom(event) 
-  {
-    event.preventDefault()
-        const cleanUsername = username.trim()
-        const cleanRoomId=roomId.trim();
-    if(!cleanRoomId.trim())
-    {
-      setError("please enter your room id");
-      return;
-    }
-   if(!cleanUsername)
-   {
-    setError("enter your name too!!");
-    usernameRef.current?.focus();
-    return;
-   }
-   setError("");
-
-    navigate(
-        `/editor/${encodeURIComponent(cleanRoomId)}?username=${encodeURIComponent(cleanUsername)}`
-    )
+  async function loadWorkspaces() {
+    const result = await api("/api/workspaces");
+    setWorkspaces(result.workspaces || []);
   }
 
-  function createRoom() {
-    const newRoomId = crypto.randomUUID().toUpperCase();
-    setRoomId(newRoomId);
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    let cancelled = false;
+    api("/api/workspaces")
+      .then((result) => { if (!cancelled) setWorkspaces(result.workspaces || []); })
+      .catch((loadError) => { if (!cancelled) setError(loadError.message); });
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  async function submitAuth(event) {
+    event.preventDefault();
+    setBusy(true);
     setError("");
+    try {
+      const result = await api(`/api/auth/${isRegister ? "register" : "login"}`, {
+        method: "POST",
+        body: JSON.stringify({ username, email, password })
+      });
+      localStorage.setItem("codecast_token", result.token);
+      localStorage.setItem("codecast_user", JSON.stringify(result.user));
+      setUser(result.user);
+      setPassword("");
+    } catch (authError) { setError(authError.message); }
+    finally { setBusy(false); }
+  }
 
-    setTimeout(()=>
-    {
-      usernameRef.current?.focus();
-    },0);
+  async function createWorkspace(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api("/api/workspaces", {
+        method: "POST",
+        body: JSON.stringify({ name: name.trim() || "Untitled Workspace" })
+      });
+      navigate(`/editor/${result.workspace._id}`);
+    } catch (createError) { setError(createError.message); }
+    finally { setBusy(false); }
+  }
 
+  async function joinWorkspace(event) {
+    event.preventDefault();
+    const workspaceId = joinId.trim();
+    if (!workspaceId) { setError("Enter a workspace ID"); return; }
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api(`/api/workspaces/${encodeURIComponent(workspaceId)}/join`, {
+        method: "POST",
+        body: "{}"
+      });
+      navigate(`/editor/${encodeURIComponent(result.workspaceId)}`);
+    } catch (joinError) {
+      setError(joinError.message === "Workspace not found"
+        ? "Check the workspace ID and ask its owner for an invitation."
+        : joinError.message);
+    } finally { setBusy(false); }
+  }
+
+  async function renameWorkspace(workspace) {
+    const nextName = window.prompt("Workspace name", workspace.name)?.trim();
+    if (!nextName || nextName === workspace.name) return;
+    try {
+      await api(`/api/workspaces/${workspace._id}`, { method: "PATCH", body: JSON.stringify({ name: nextName }) });
+      await loadWorkspaces();
+    } catch (renameError) { setError(renameError.message); }
+  }
+
+  async function deleteWorkspace(workspace) {
+    if (!window.confirm(`Delete "${workspace.name}"?`)) return;
+    try {
+      await api(`/api/workspaces/${workspace._id}`, { method: "DELETE" });
+      await loadWorkspaces();
+    } catch (deleteError) { setError(deleteError.message); }
+  }
+
+  function signOut() {
+    localStorage.removeItem("codecast_token");
+    localStorage.removeItem("codecast_user");
+    setUser(null);
+    setWorkspaces([]);
+  }
+
+  const dateLabel = (value) => value ? new Date(value).toLocaleDateString() : "Recently";
+
+  if (!user) {
+    return (
+      <main className="codecast-page">
+        <section className="codecast-card">
+          <div className="codecast-brand"><span>CODECAST</span></div>
+          <div className="codecast-heading">
+            <h1>{isRegister ? "Create your account" : "Welcome back"}</h1>
+            <p className="codecast-subtitle">Sign in to find your workspaces and code together.</p>
+          </div>
+          <form className="codecast-form" onSubmit={submitAuth}>
+            {isRegister && <input className="codecast-input" placeholder="USERNAME" value={username} onChange={(event) => setUsername(event.target.value)} maxLength={50} required />}
+            <input className="codecast-input" type="email" placeholder="EMAIL" value={email} onChange={(event) => setEmail(event.target.value)} required />
+            <input className="codecast-input" type="password" placeholder="PASSWORD (8+ CHARACTERS)" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} required />
+            <Toast message={error} onClose={() => setError("")} />
+            <PixelButton className="auth-submit-button" type="submit" disabled={busy}>
+              {busy ? "PLEASE WAIT..." : isRegister ? "CREATE ACCOUNT" : "SIGN IN"}
+            </PixelButton>
+          </form>
+          <div className="codecast-create">
+            <span>{isRegister ? "Already have an account?" : "New to CODECAST?"}</span>
+            <button className="auth-switch-button" type="button" onClick={() => { setIsRegister(!isRegister); setError(""); }}>
+              {isRegister ? "SIGN IN" : "CREATE ACCOUNT"}
+            </button>
+          </div>
+        </section>
+      </main>
+    );
   }
 
   return (
-    <main className="codecast-page">
-
-      {/* Background decorations */}
-      <div className="codecast-stars" aria-hidden="true">
-        <span className="star star-one">✦</span>
-        <span className="star star-two">✧</span>
-        <span className="star star-three">✦</span>
-        <span className="star star-four">·</span>
-        <span className="pixel-heart">♥</span>
-      </div>
-
-      {/* Main card */}
-      <section className="codecast-card">
-
-        {/* Logo */}
-        <div className="codecast-brand">
-          <span className="brand-icon">⌘</span>
-          <span className="brand-divider"></span>
-          <span>CODECAST</span>
-          <span className="brand-sparkle">✦</span>
+    <main className="codecast-page dashboard-page">
+      <section className="dashboard-shell">
+        <header className="dashboard-header">
+          <div className="codecast-brand"><span>CODECAST</span></div>
+          <div className="dashboard-user">
+            <span>{user.username} | {user.email}</span>
+            <button className="dashboard-signout-button" onClick={signOut}>SIGN OUT</button>
+          </div>
+        </header>
+        <div className="dashboard-title-row">
+          <div><h1>My Workspaces</h1><p>Pick up where you left off or start something new.</p></div>
         </div>
-
-        {/* Heading */}
-        <div className="codecast-heading">
-          <h1>Enter the ROOM ID</h1>
-
-          <p className="codecast-subtitle">
-            your little corner of the coding universe ✨
-          </p>
-        </div>
-
-        {/* Form */}
-        <form
-          className="codecast-form"
-          onSubmit={joinRoom}
-        >
-
-          <label className="sr-only" htmlFor="room-id">
-            Room ID
-          </label>
-
-          <input
-            id="room-id"
-            className="codecast-input"
-            type="text"
-            placeholder="ROOM ID"
-            value={roomId}
-            onChange={(e) =>
-              setRoomId(e.target.value.toUpperCase())
-            }
-            autoComplete="off"
-            
-          />
-
-          <label className="sr-only" htmlFor="username">
-            Username
-          </label>
-          
-          <input
-          ref={usernameRef}
-            id="username"
-            className="codecast-input"
-            type="text"
-            placeholder="USERNAME"
-            value={username}
-            onChange={(e) =>
-              setUsername(e.target.value)
-            }
-            autoComplete="nickname"
-            maxLength={24}
-          />
-          <Toast
-          message={error}
-          onClose={()=>setError("")}
-          />
-
-          <PixelButton
-            className="join-button"
-            type="submit"
-            
-          >
-            JOIN ROOM <span>➜</span>
-          </PixelButton>
-
-        </form>
-
-        {/* Create room */}
-        <div className="codecast-create">
-          <span>Don't have a room ID?</span>
-
-          <PixelButton
-            className="new-room-button"
-            onClick={createRoom}
-          >
-            Create New Room <span>♡</span>
-          </PixelButton>
-        </div>
-
-        {/* Footer */}
-        <div className="codecast-footer">
-          <span className="status-dot"></span>
-          READY WHEN YOU ARE
-          <span className="footer-divider">•</span>
-          CODE TOGETHER, ANYWHERE
-        </div>
-
-        <span className="corner-decoration corner-top-left">
-          ✧
-        </span>
-
-        <span className="corner-decoration corner-bottom-right">
-          ✦
-        </span>
-
+        <Toast message={error} onClose={() => setError("")} />
+        <section className="workspace-grid">
+          {workspaces.map((workspace) => (
+            <article className="workspace-card" key={workspace._id}>
+              <Link className="workspace-open" to={`/editor/${workspace._id}`}>
+                <strong>{workspace.name}</strong>
+                <span className="workspace-language">Java</span>
+                <pre className="workspace-code-preview">{workspace.codePreview || "No code preview available."}</pre>
+                <span className="workspace-updated">Updated {dateLabel(workspace.updatedAt)}</span>
+                <span className="workspace-role">{workspace.role}</span>
+              </Link>
+              {workspace.role === "owner" && (
+                <div className="workspace-card-actions">
+                  <button onClick={() => renameWorkspace(workspace)}>Rename</button>
+                  <button onClick={() => deleteWorkspace(workspace)}>Delete</button>
+                </div>
+              )}
+            </article>
+          ))}
+          <form className="workspace-card join-workspace-card" onSubmit={joinWorkspace}>
+            <strong>Join Workspace</strong>
+            <span>Open a workspace by ID</span>
+            <input aria-label="Workspace ID" className="codecast-input" placeholder="Paste workspace ID" value={joinId} onChange={(event) => setJoinId(event.target.value)} />
+            <small>The workspace ID lets you join as a collaborator.</small>
+            <PixelButton className="dashboard-join-submit" type="submit" disabled={busy}>
+              {busy ? "OPENING..." : "JOIN WORKSPACE"}
+            </PixelButton>
+          </form>
+          <form className="workspace-card create-workspace-card" onSubmit={createWorkspace}>
+            <strong>Create Workspace</strong>
+            <span>Start a new project</span>
+            <input aria-label="New workspace name" className="codecast-input" placeholder="Workspace name" value={name} onChange={(event) => setName(event.target.value)} maxLength={100} />
+            <PixelButton className="auth-submit-button" type="submit" disabled={busy}>
+              {busy ? "CREATING..." : "CREATE WORKSPACE"}
+            </PixelButton>
+          </form>
+        </section>
       </section>
-
-      <p className="page-caption">
-        made for late-night ideas & lovely little bugs <span>♡</span>
-      </p>
-
     </main>
-  )
+  );
 }
 
-export default HomePage
+export default HomePage;

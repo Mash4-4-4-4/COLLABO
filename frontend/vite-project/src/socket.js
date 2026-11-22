@@ -1,15 +1,10 @@
+﻿import { io } from "socket.io-client";
+import { getToken, apiUrl } from "./utils/api";
 
-import { io } from "socket.io-client";
-
-const SOCKET_URL = "http://localhost:5000";
-
-export const initSocket = () => {
-    const socket = io(SOCKET_URL, {
-        autoConnect: false,
-        reconnection: true,
-        reconnectionAttempts: Infinity,
-        timeout: 10000,
-    });
-
-    return socket;
-};
+export const initSocket = () => io(apiUrl, {
+    autoConnect: false,
+    auth: { token: getToken() },
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    timeout: 10000,
+});
